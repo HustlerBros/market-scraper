@@ -50,3 +50,6 @@ logs/
 
 # UV
 .uv/
+
+# misc
+notes.txt

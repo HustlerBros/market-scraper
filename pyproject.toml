@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "A market data scraper"
 dependencies = [
     "requests",
-    "beautifulsoup4"
+    "beautifulsoup4",
+    "python-telegram-bot[job-queue]==20.7"
 ]
 
 [build-system]

@@ -11,16 +11,18 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
 )
+from pathlib import Path
 
+ROOT_DIR = Path(__file__).parent.parent
 URL = "https://www.mexc.com/announcements/new-listings/futures-19"
-DB_PATH = os.getenv("DB_PATH", "/data/mexc_futures.db")
+DB_PATH = os.getenv("DB_PATH",f"{ROOT_DIR}/data/mexc_futures.db")
 BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
 SCRAPE_INTERVAL = 300  # seconds (5 minutes)
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
 
-FILE_PATH = os.getenv("FILE_PATH", "/data/response.txt")
+FILE_PATH = os.getenv("FILE_PATH", f"{ROOT_DIR}/data/response.txt")
 
 def init_db():
     conn = get_db()
