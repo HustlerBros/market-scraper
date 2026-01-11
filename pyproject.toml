@@ -1,0 +1,21 @@
+[project]
+name = "market-scraper"
+version = "0.1.0"
+description = "A market data scraper"
+dependencies = [
+    "requests",
+    "beautifulsoup4"
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+    "ruff"
+]
+
+[tool.ruff]
+line-length = 120
