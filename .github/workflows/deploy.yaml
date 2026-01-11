@@ -26,7 +26,6 @@ jobs:
                   files: |
                       Dockerfile
                       requirements.txt
-                      pyproject.toml
                       src/**
             - name: Set output if code changes detected
               run: |
