@@ -62,8 +62,6 @@ jobs:
                       docker run -d --name mexc-market-scraper-container \
                         -v ~/market-scraper/data:/data \
                         -e TG_BOT_TOKEN=${{ secrets.TG_BOT_TOKEN }} \
-                        -e DB_PATH=/data/mexc_futures.db \
-                        -e FILE_PATH=/data/response.txt \
                         mexc-market-scraper
             - name: Check Deployed Container
               uses: appleboy/ssh-action@v0.1.7

@@ -15,14 +15,14 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent.parent
 URL = "https://www.mexc.com/announcements/new-listings/futures-19"
-DB_PATH = os.getenv("DB_PATH",f"{ROOT_DIR}/data/mexc_futures.db")
+DB_PATH = f"{ROOT_DIR}/data/mexc_futures.db"
 BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
 SCRAPE_INTERVAL = 300  # seconds (5 minutes)
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
 
-FILE_PATH = os.getenv("FILE_PATH", f"{ROOT_DIR}/data/response.txt")
+FILE_PATH = f"{ROOT_DIR}/data/response.txt"
 
 def init_db():
     conn = get_db()
@@ -198,6 +198,7 @@ def main():
         app.add_handler(CommandHandler("start", start))
     except Exception as e:
         print(e)
+        raise e
     # Background scraper task
     app.job_queue.run_repeating(
         lambda ctx: asyncio.create_task(scrape_loop(ctx.application)),
