@@ -62,7 +62,7 @@ jobs:
                       # Rebuild and start docker container from Dockerfile
                       docker build -t mexc-market-scraper .
                       docker run -d --name mexc-market-scraper-container \
-                        -v ~/market-scraper/data:/data \
+                        -v ~/market-scraper/data:/app/data \
                         -e TG_BOT_TOKEN=${{ secrets.TG_BOT_TOKEN }} \
                         mexc-market-scraper
             - name: Check Deployed Container
