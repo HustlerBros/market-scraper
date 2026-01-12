@@ -1,0 +1,76 @@
+name: Deploy Market Scraper
+
+on:
+    push:
+        branches:
+            - main
+
+env:
+    USER: ${{ secrets.DEPLOY_USER }}
+    HOST: ${{ secrets.DEPLOY_HOST }}
+    PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+
+jobs:
+    detect_changes:
+        name: Detect changes for docker-related files
+        runs-on: ubuntu-latest
+        outputs:
+            CODE_CHANGE_DETECTED: ${{ steps.detect-container-relevant-changes.outputs.CODE_CHANGE_DETECTED }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+            - name: Detect changes
+              id: detect-container-relevant-changes
+              uses: tj-actions/changed-files@v47
+              with:
+                  files: |
+                      Dockerfile
+                      requirements.txt
+                      src/**
+            - name: Set output if code changes detected
+              run: |
+                  if [ "${{ steps.detect-container-relevant-changes.outputs.any_changed }}" = "true" ]; then
+                      echo "CODE_CHANGE_DETECTED=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "CODE_CHANGE_DETECTED=false" >> $GITHUB_OUTPUT
+                  fi
+    deploy:
+        name: Deploy to Remote Server
+        needs: detect_changes
+        if: needs.detect_changes.outputs.CODE_CHANGE_DETECTED == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+            - name: Deploy via SSH
+              uses: appleboy/ssh-action@v0.1.7
+              with:
+                  host: ${{ env.HOST }}
+                  username: ${{ env.USER }}
+                  password: ${{ env.PASSWORD }}
+                  port: 22
+                  script: |
+                      cd ~/market-scraper || exit
+                      git pull origin main
+                      # Stop and remove containers matching mexc*
+                      docker ps -a --filter "name=mexc*" -q | xargs -r docker stop
+                      docker ps -a --filter "name=mexc*" -q | xargs -r docker rm
+                      # Remove images matching mexc*
+                      docker images --filter "reference=mexc*" -q | xargs -r docker rmi -f
+                      # Rebuild and start docker container from Dockerfile
+                      docker build -t mexc-market-scraper .
+                      docker run -d --name mexc-market-scraper-container \
+                        -v ~/market-scraper/data:/data \
+                        -e TG_BOT_TOKEN=${{ secrets.TG_BOT_TOKEN }} \
+                        mexc-market-scraper
+            - name: Check Deployed Container
+              uses: appleboy/ssh-action@v0.1.7
+              with:
+                  host: ${{ env.HOST }}
+                  username: ${{ env.USER }}
+                  password: ${{ env.PASSWORD }}
+                  port: 22
+                  script: |
+                        CONTAINER_STATUS=$(docker ps --filter "name=mexc-market-scraper-container" --format "{{.Status}}")
+                        echo "Deployed Container Status: $CONTAINER_STATUS"
+
