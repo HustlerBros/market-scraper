@@ -37,7 +37,7 @@ jobs:
     deploy:
         name: Deploy to Remote Server
         needs: detect_changes
-        if: needs.detect_changes.outputs.CODE_CHANGE_DETECTED == 'true'
+        if: ${{ needs.detect_changes.outputs.CODE_CHANGE_DETECTED == 'true' }}
         runs-on: ubuntu-latest
         steps:
             - name: Checkout code
