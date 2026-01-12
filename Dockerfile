@@ -8,6 +8,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY run_app.sh .
 
-VOLUME ["/data"]
-
 CMD ["bash", "run_app.sh"]
