@@ -10,5 +10,4 @@ COPY run_app.sh .
 
 VOLUME ["/data"]
 
-
 CMD ["bash", "run_app.sh"]
