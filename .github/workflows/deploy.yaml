@@ -5,11 +5,6 @@ on:
         branches:
             - main
 
-env:
-    USER: ${{ secrets.DEPLOY_USER }}
-    HOST: ${{ secrets.DEPLOY_HOST }}
-    PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
-
 jobs:
     detect_changes:
         name: Detect changes for docker-related files
@@ -35,18 +30,17 @@ jobs:
                   else
                       echo "CODE_CHANGE_DETECTED=false" >> "$GITHUB_OUTPUT"
                   fi
-    debug_output:
-        name: Debug detect_changes output
-        needs: detect_changes
-        runs-on: ubuntu-latest
-        steps:
-            - run: |
-                echo "CODE_CHANGE_DETECTED='${{ needs.detect_changes.outputs.CODE_CHANGE_DETECTED }}'"
     deploy:
         name: Deploy to Remote Server
         needs: detect_changes
         if: ${{ needs.detect_changes.outputs.CODE_CHANGE_DETECTED == 'true' }}
         runs-on: ubuntu-latest
+
+        env:
+            USER: ${{ secrets.DEPLOY_USER }}
+            HOST: ${{ secrets.DEPLOY_HOST }}
+            PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+        
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
