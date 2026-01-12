@@ -28,6 +28,7 @@ jobs:
                       requirements.txt
                       src/**
             - name: Set output if code changes detected
+              id: set-output
               run: |
                   if [ "${{ steps.detect-container-relevant-changes.outputs.any_changed }}" = "true" ]; then
                       echo "CODE_CHANGE_DETECTED=true" >> "$GITHUB_OUTPUT"
