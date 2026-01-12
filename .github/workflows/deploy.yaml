@@ -35,6 +35,13 @@ jobs:
                   else
                       echo "CODE_CHANGE_DETECTED=false" >> "$GITHUB_OUTPUT"
                   fi
+    debug_output:
+        name: Debug detect_changes output
+        needs: detect_changes
+        runs-on: ubuntu-latest
+        steps:
+            - run: |
+                echo "CODE_CHANGE_DETECTED='${{ needs.detect_changes.outputs.CODE_CHANGE_DETECTED }}'"
     deploy:
         name: Deploy to Remote Server
         needs: detect_changes
