@@ -30,9 +30,9 @@ jobs:
             - name: Set output if code changes detected
               run: |
                   if [ "${{ steps.detect-container-relevant-changes.outputs.any_changed }}" = "true" ]; then
-                      echo "CODE_CHANGE_DETECTED=true" >> $GITHUB_OUTPUT
+                      echo "CODE_CHANGE_DETECTED=true" >> "$GITHUB_OUTPUT"
                   else
-                      echo "CODE_CHANGE_DETECTED=false" >> $GITHUB_OUTPUT
+                      echo "CODE_CHANGE_DETECTED=false" >> "$GITHUB_OUTPUT"
                   fi
     deploy:
         name: Deploy to Remote Server
