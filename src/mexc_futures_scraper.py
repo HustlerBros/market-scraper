@@ -72,7 +72,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     await update.message.reply_text(
-        "✅ You are subscribed to MEXC Futures listings alerts!\n"
+        "✅ You are subscribed to MEXC Futures listings alerts.\n"
         "You will receive notifications when new futures are listed."
     )
 
