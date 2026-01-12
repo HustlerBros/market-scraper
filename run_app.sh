@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # check if environment variables are set
-ENV_VARS=("TG_BOT_TOKEN" "DB_PATH" "FILE_PATH")
+ENV_VARS=("TG_BOT_TOKEN")
 for VAR in "${ENV_VARS[@]}"; do
   if [ -z "${!VAR}" ]; then
     echo "Error: Environment variable $VAR is not set."

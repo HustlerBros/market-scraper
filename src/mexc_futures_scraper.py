@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).parent.parent
+ROOT_DIR = Path(__file__).absolute().parent.parent
 URL = "https://www.mexc.com/announcements/new-listings/futures-19"
 DB_PATH = f"{ROOT_DIR}/data/mexc_futures.db"
 BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
