@@ -3,7 +3,7 @@
 Scans public MEXC market data every 60 seconds and sends Telegram alerts for active
 USDT perpetual futures matching all of these defaults:
 
-- Rolling 24h gain ≥ 60% (one-minute candle approximation).
+- Rolling 24h gain ≥ 80% (one-minute candle approximation).
 - 24h turnover ≥ 1,000,000 USDT.
 - Open-interest notional / 24h turnover ≥ 10%.
 
@@ -40,7 +40,7 @@ is replaced by market scanning; old announcement records are left intact.
 | --- | --- | --- |
 | `TG_BOT_TOKEN` | required | Telegram bot token |
 | `SCRAPE_INTERVAL` | `60` | Seconds between scans |
-| `MIN_GAIN_PERCENT` | `60` | Minimum rolling 24h percentage gain (1m approximation) |
+| `MIN_GAIN_PERCENT` | `80` | Minimum rolling 24h percentage gain (1m approximation) |
 | `MIN_TURNOVER_USDT` | `1000000` | Minimum 24h turnover |
 | `MIN_OI_TURNOVER_RATIO` | `0.10` | Minimum OI/turnover ratio (10%) |
 | `MAX_OI_TURNOVER_RATIO` | unset | Optional upper ratio, e.g. `1.50` for 150% |
