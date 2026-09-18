@@ -12,7 +12,7 @@ TIMESTAMP = 1789113090723
 MINUTE = (TIMESTAMP // 1000 - 86400) // 60 * 60
 CONTRACT = dict(symbol="ABC_USDT", quoteCoin="USDT", settleCoin="USDT",
                 futureType=1, state=0, contractSize="0.1")
-TICKER = dict(symbol="ABC_USDT", lastPrice="2", amount24="1000000",
+TICKER = dict(symbol="ABC_USDT", lastPrice="2.25", amount24="1000000",
               holdVol="600000", fundingRate="0", timestamp=TIMESTAMP)
 
 
@@ -38,7 +38,7 @@ def test_reference_uses_matching_minute_and_seconds(candle_api):
                                     {"riseFallRate": "100", "riseFallRates": {"zone": "UTC+8"}}])
 def test_rolling_gain_ignores_timezone_fields(candle_api, fields):
     coins, evaluated = scanner.select_gainers([TICKER | fields], [CONTRACT])
-    assert coins[0]["gain"] == 60
+    assert coins[0]["gain"] == 80
     assert evaluated == {"ABC_USDT"}
     assert scanner.select_gainers([TICKER | fields | {"lastPrice": "1.99"}], [CONTRACT]) == (
         [], {"ABC_USDT"})
