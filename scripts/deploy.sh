@@ -66,6 +66,7 @@ new_attempted=true
 docker run -d --name "$container" --restart unless-stopped \
     --mount "type=bind,src=$deploy_dir/data,dst=/app/data" \
     --env TG_BOT_TOKEN \
+    --env MIN_GAIN_PERCENT \
     "$image"
 
 # Health requires a completed market scan, including Telegram delivery attempts.
