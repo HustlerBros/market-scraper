@@ -14,6 +14,7 @@ from urllib.parse import quote
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from prometheus_client import start_http_server, Counter, Histogram, Gauge
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = os.getenv("DB_PATH", str(ROOT_DIR / "data/mexc_futures.db"))
@@ -28,6 +29,16 @@ MAX_OI_TURNOVER_RATIO = (
     Decimal(os.environ["MAX_OI_TURNOVER_RATIO"]) if os.getenv("MAX_OI_TURNOVER_RATIO") else None
 )
 logger = logging.getLogger(__name__)
+
+# --- PROMETHEUS METRICS ---
+SCAN_DURATION = Histogram("mexc_scan_duration_seconds", "Duration of market scan cycle")
+API_LATENCY = Histogram("mexc_http_request_duration_seconds", "HTTP latency", ["endpoint"])
+API_ERRORS = Counter("mexc_http_errors_total", "HTTP failures", ["endpoint"])
+EVALUATED_COUNTER = Counter("mexc_contracts_evaluated_total", "Contracts checked")
+GAINERS_COUNTER = Counter("mexc_gainers_detected_total", "Gainers meeting criteria")
+ALERTS_SENT = Counter("mexc_telegram_alerts_total", "Alerts dispatched", ["status"])
+SUBSCRIBERS_COUNT = Gauge("mexc_subscribers_total", "Current unique subscribers")
+LAST_SCAN_TIMESTAMP = Gauge("mexc_last_successful_scan_timestamp", "Epoch timestamp of last scan")
 
 
 def get_db():
@@ -69,12 +80,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def fetch_payload(endpoint, params=None):
-    response = requests.get(f"{API_BASE}/{endpoint}", params=params, timeout=20)
-    response.raise_for_status()
-    payload = response.json()
-    if not isinstance(payload, dict) or payload.get("success") is not True or payload.get("code") != 0:
-        raise ValueError(f"MEXC {endpoint} request was unsuccessful")
-    return payload.get("data")
+    clean_endpoint = endpoint.split("/")[0]  # Normalizes "kline/SYMBOL" to "kline" for metrics
+    try:
+        with API_LATENCY.labels(endpoint=clean_endpoint).time():
+            response = requests.get(f"{API_BASE}/{endpoint}", params=params, timeout=20)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or payload.get("success") is not True or payload.get("code") != 0:
+                raise ValueError(f"MEXC {endpoint} request was unsuccessful")
+            return payload.get("data")
+    except Exception:
+        API_ERRORS.labels(endpoint=clean_endpoint).inc()
+        raise
 
 
 def fetch_market_data(endpoint):
@@ -183,16 +200,20 @@ async def deliver_alerts(app, gainers):
     """Keep the latest successful delivery per subscriber/ticker as a daily cache."""
     with closing(get_db()) as conn, conn:
         users = conn.execute("SELECT chat_id FROM telegram_users").fetchall()
+        SUBSCRIBERS_COUNT.set(len(users))  # Metric: Update subscriber gauge
         sent = {(chat_id, symbol): sent_at[:10] for chat_id, symbol, sent_at in
                 conn.execute("SELECT chat_id, symbol, sent_at FROM gainer_alerts")}
     for coin in gainers:
         for (chat_id,) in users:
             if sent.get((chat_id, coin["symbol"])) == now()[:10]:
+                ALERTS_SENT.labels(status="deduplicated").inc()
                 continue
             try:
                 await app.bot.send_message(chat_id=chat_id, text=format_alert(coin),
                                            parse_mode="HTML", disable_web_page_preview=True)
+                ALERTS_SENT.labels(status="sent").inc()
             except Exception:
+                ALERTS_SENT.labels(status="failed").inc()
                 logger.warning("Failed to notify chat %s; will retry next scan", chat_id)
                 continue
             sent_at = now()
@@ -204,13 +225,23 @@ async def deliver_alerts(app, gainers):
 
 
 async def scrape_loop(context: ContextTypes.DEFAULT_TYPE):
+    start_time = time.time()
     try:
         gainers, evaluated = await asyncio.to_thread(scrape)
+        
+        # Metrics: Update scan statistics
+        EVALUATED_COUNTER.inc(len(evaluated))
+        GAINERS_COUNTER.inc(len(gainers))
+        LAST_SCAN_TIMESTAMP.set_to_current_time()
+        
         await deliver_alerts(context.application, gainers)
         HEALTH_PATH.touch()
         logger.info("Evaluated %d contracts; %d qualify", len(evaluated), len(gainers))
     except Exception:
         logger.exception("Market scan failed; retaining alert state for the next scan")
+    finally:
+        # Metric: Record full loop duration
+        SCAN_DURATION.observe(time.time() - start_time)
 
 
 def main():
@@ -225,8 +256,14 @@ def main():
         MAX_OI_TURNOVER_RATIO is not None and MAX_OI_TURNOVER_RATIO < MIN_OI_TURNOVER_RATIO
     ):
         raise ValueError("Turnover must be positive and maximum ratio must be at least the minimum")
+    
     logging.basicConfig(level=logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    
+    # Start Prometheus metrics server
+    start_http_server(8000)
+    logger.info("Prometheus metrics server running on port 8000")
+    
     init_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
