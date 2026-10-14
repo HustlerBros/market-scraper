@@ -6,6 +6,7 @@ description = "A market data scraper"
 dependencies = [
     "requests",
     "python-telegram-bot[job-queue]==20.7"
+    "prometheus-client>=0.20.0"
 ]
 
 [build-system]
