@@ -16,6 +16,15 @@ wheels = [
 ]
 
 [[package]]
+name = "prometheus-client"
+version = "0.26.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/02/7ebfc2b03cfd1cbff887d1dfd9aab5433a0dbafcc1dd0e93de8dbf84900a/prometheus_client-0.26.0.tar.gz", hash = "sha256:04a91bcf94e2cf74a44a1a874d651a2e853ed354b6e822f3b7487751465d5c2b", size = 95130 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/20/d193d5f66ffca89975b9f7a931653896504a7541e21b72e5ffaa866a40a6/prometheus_client-0.26.0-py3-none-any.whl", hash = "sha256:fa93d06737aa02bacd05794768508bb97d2fbee28cb3bca04eaae92f0ca953d6", size = 66048 },
+]
+
+[[package]]
 name = "apscheduler"
 version = "3.10.4"
 source = { registry = "https://pypi.org/simple" }
