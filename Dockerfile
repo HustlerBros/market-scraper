@@ -13,4 +13,6 @@ COPY run_app.sh .
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=3 \
     CMD ["python", "src/healthcheck.py"]
 
+EXPOSE 8000
+
 CMD ["bash", "run_app.sh"]
