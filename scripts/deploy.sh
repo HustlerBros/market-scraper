@@ -1,94 +1,92 @@
 #!/bin/sh
-# Executed remotely by ssh-action; only replace this application's container.
+# Remote deployment script executed via SSH on remote server
 set -eu
 
-: "${DEPLOY_SHA:?DEPLOY_SHA must be set}"
-: "${TG_BOT_TOKEN:?TG_BOT_TOKEN must be set}"
-export TG_BOT_TOKEN
+echo "Deploying MEXC Futures Scraper and Prometheus..."
 
-deploy_dir=${DEPLOY_DIR:-"$HOME/market-scraper"}
-cd "$deploy_dir"
-git fetch origin "$DEPLOY_SHA"
-git cat-file -e "$DEPLOY_SHA^{commit}"
-
-container=mexc-market-scraper-container
-previous_container=mexc-market-scraper-previous
-image="mexc-market-scraper:$DEPLOY_SHA"
-archive=$(mktemp)
-previous_saved=false
-old_stopped=false
-new_attempted=false
-completed=false
-
-# Invoked indirectly by the EXIT trap; rollback paths are covered by tests.
-# shellcheck disable=SC2317
-cleanup() {
-    result=$?
-    trap - EXIT HUP INT TERM
-    if [ "$completed" = false ]; then
-        if [ "$new_attempted" = true ]; then
-            docker logs --tail 60 "$container" >&2 || true
-            docker rm -f "$container" || true
-        fi
-        if [ "$previous_saved" = true ]; then
-            docker rename "$previous_container" "$container" || true
-        fi
-        if [ "$old_stopped" = true ]; then
-            docker start "$container" || true
-            echo 'Deployment failed; attempted to restore the previous container.' >&2
-        fi
-    fi
-    rm -f "$archive"
-    exit "$result"
-}
-trap 'cleanup' EXIT
-trap 'exit 1' HUP INT TERM
-
-# Build exactly the tested commit before stopping the running bot. The archive
-# excludes server-local changes and secrets from the Docker build context.
-git archive --format=tar --output="$archive" "$DEPLOY_SHA"
-docker build --tag "$image" - < "$archive"
-docker run --rm --entrypoint python "$image" -c 'import src.mexc_futures_scraper'
-mkdir -p "$deploy_dir/data"
-
-if docker container inspect "$previous_container" >/dev/null 2>&1; then
-    echo "A previous rollback container already exists: $previous_container. Resolve it before deploying." >&2
+# Ensure the script executes from the project root on the remote server
+deploy_dir="${DEPLOY_DIR:-"$HOME/market-scraper"}"
+if [ ! -d "$deploy_dir" ]; then
+    echo "Error: Deployment directory '$deploy_dir' not found." >&2
     exit 1
 fi
-if docker container inspect "$container" >/dev/null 2>&1; then
-    old_stopped=true
-    docker stop --time 30 "$container"
-    docker rename "$container" "$previous_container"
-    previous_saved=true
+cd "$deploy_dir"
+
+# If DEPLOY_SHA is provided by CI, fetch and checkout that exact commit
+if [ -n "${DEPLOY_SHA:-}" ]; then
+    echo "Fetching and checking out commit $DEPLOY_SHA..."
+    git fetch origin "$DEPLOY_SHA"
+    git checkout -q "$DEPLOY_SHA"
 fi
 
-new_attempted=true
-docker run -d --name "$container" --restart unless-stopped \
-    --mount "type=bind,src=$deploy_dir/data,dst=/app/data" \
-    --env TG_BOT_TOKEN \
-    --env MIN_GAIN_PERCENT \
-    "$image"
+# Validate that the Telegram Bot Token is available either in .env or the environment
+if [ ! -f ".env" ] && [ -z "${TG_BOT_TOKEN:-}" ]; then
+    echo "Error: .env file not found and TG_BOT_TOKEN environment variable is not set." >&2
+    echo "Please create a .env file or export TG_BOT_TOKEN before deploying." >&2
+    exit 1
+fi
 
-# Health requires a completed market scan, including Telegram delivery attempts.
+# Detect Docker Compose implementation
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_MODE="plugin"
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_MODE="standalone"
+else
+    echo "Error: Neither 'docker compose' nor 'docker-compose' was found on your system." >&2
+    exit 1
+fi
+
+compose() {
+    if [ "$COMPOSE_MODE" = "plugin" ]; then
+        docker compose "$@"
+    else
+        docker-compose "$@"
+    fi
+}
+
+echo "Building services..."
+compose build
+
+echo "Starting services..."
+compose up -d --remove-orphans
+
+echo "Verifying service health..."
+container_id=$(compose ps -q scraper)
+if [ -z "$container_id" ]; then
+    echo "Error: Scraper container failed to start." >&2
+    compose logs --tail 50 scraper >&2
+    exit 1
+fi
+
+# Wait for scanner healthcheck (up to 180 seconds: 36 attempts * 5s)
 attempt=0
-while [ "$attempt" -lt 36 ]; do
-    state=$(docker inspect --format '{{.State.Status}}' "$container")
-    health=$(docker inspect --format '{{.State.Health.Status}}' "$container")
-    if [ "$state" != running ] || [ "$health" = unhealthy ]; then
-        echo "Scanner failed startup: state=$state health=$health" >&2
+max_attempts=36
+while [ "$attempt" -lt "$max_attempts" ]; do
+    status=$(docker inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null || echo "unknown")
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null || echo "unknown")
+
+    if [ "$status" != "running" ]; then
+        echo "Container stopped unexpectedly (status: $status)." >&2
+        compose logs --tail 50 scraper >&2
         exit 1
     fi
-    if [ "$health" = healthy ]; then
-        completed=true
-        if [ "$previous_saved" = true ]; then
-            docker rm "$previous_container"
-        fi
-        echo "Deployed $DEPLOY_SHA: scanner is healthy."
+
+    if [ "$health" = "healthy" ]; then
+        echo "Deployment complete! Scraper is healthy."
+        compose ps
         exit 0
     fi
+
+    if [ "$health" = "unhealthy" ]; then
+        echo "Health check failed: scraper is unhealthy." >&2
+        compose logs --tail 50 scraper >&2
+        exit 1
+    fi
+
     attempt=$((attempt + 1))
     sleep 5
 done
 
-echo 'Scanner did not become healthy within 180 seconds.' >&2
+echo "Error: Scraper did not become healthy within 180 seconds." >&2
+compose logs --tail 50 scraper >&2
 exit 1

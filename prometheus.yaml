@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "mexc_scraper"
+    static_configs:
+      # Targets the 'scraper' service defined in docker-compose.yml on port 8000
+      - targets: ["scraper:8000"]

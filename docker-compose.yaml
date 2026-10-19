@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  scraper:
+    build: .
+    container_name: mexc-scraper
+    restart: unless-stopped
+    # Metrics port 8000 is accessible to Prometheus via the Compose network
+    environment:
+      - TG_BOT_TOKEN=${TG_BOT_TOKEN}
+      - DB_PATH=/app/data/mexc_futures.db
+      - SCRAPE_INTERVAL=${SCRAPE_INTERVAL:-60}
+      - MIN_GAIN_PERCENT=${MIN_GAIN_PERCENT:-80}
+      - MIN_TURNOVER_USDT=${MIN_TURNOVER_USDT:-1000000}
+      - MIN_OI_TURNOVER_RATIO=${MIN_OI_TURNOVER_RATIO:-0.10}
+      - MAX_OI_TURNOVER_RATIO=${MAX_OI_TURNOVER_RATIO:-}
+    volumes:
+      - ./data:/app/data
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_BIND_IP:-0.0.0.0}:9090:9090"
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - scraper
+
+volumes:
+  prometheus_data:

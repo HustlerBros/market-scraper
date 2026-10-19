@@ -1,13 +1,9 @@
 #!/bin/bash
+set -eu
 
-# check if environment variables are set
-ENV_VARS=("TG_BOT_TOKEN")
-for VAR in "${ENV_VARS[@]}"; do
-  if [ -z "${!VAR}" ]; then
-    echo "Error: Environment variable $VAR is not set."
-    exit 1
-  fi
-done
+if [ -z "${TG_BOT_TOKEN:-}" ]; then
+  echo "Error: Environment variable TG_BOT_TOKEN is not set." >&2
+  exit 1
+fi
 
-# run the scraper
 exec python src/mexc_futures_scraper.py
