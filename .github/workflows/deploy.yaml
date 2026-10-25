@@ -51,12 +51,13 @@ jobs:
         env:
           DEPLOY_SHA: ${{ github.sha }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_ADMIN_IDS: ${{ secrets.TG_ADMIN_IDS }}
           MIN_GAIN_PERCENT: 50
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
           port: 22
-          envs: DEPLOY_SHA,TG_BOT_TOKEN,MIN_GAIN_PERCENT
+          envs: DEPLOY_SHA,TG_BOT_TOKEN,MIN_GAIN_PERCENT,TG_ADMIN_IDS
           command_timeout: 15m
           script_path: scripts/deploy.sh
