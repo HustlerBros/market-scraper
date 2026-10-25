@@ -100,7 +100,10 @@ checks, and a Docker build. Successful pushes to `main` deploy automatically;
 and startup-script changes are included. Deployments are serialized.
 
 The repository needs these existing Actions secrets: `DEPLOY_HOST`, `DEPLOY_USER`,
-`DEPLOY_PASSWORD`, and `TG_BOT_TOKEN`. The SSH user needs Docker access and a Git
+`DEPLOY_PASSWORD`, and `TG_BOT_TOKEN`. Add `TG_ADMIN_IDS` as an Actions secret to
+enable Telegram setting changes in production; the deployment forwards it to
+Compose. Its value is a comma-separated list of Telegram numeric user IDs. Without
+it, setting commands remain locked. The SSH user needs Docker access and a Git
 checkout at `~/market-scraper` with access to the origin repository.
 
 Deployment builds an archive of the triggering commit before stopping the old
