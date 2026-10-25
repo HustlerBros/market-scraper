@@ -32,19 +32,38 @@ bash run_app.sh
 ```
 
 The process reads environment variables; it does not automatically load `.env`.
-Send `/start` to the bot to subscribe; `/health` checks bot responsiveness.
+Send `/start` to the bot to subscribe; `/health` checks bot responsiveness. Scanner
+settings can be inspected with `/settings` and changed in Telegram. Set
+`TG_ADMIN_IDS` to comma-separated Telegram numeric user IDs to authorize changes;
+the value is read when the bot starts. The settings are stored in SQLite and
+survive restarts.
 Existing subscribers in `data/mexc_futures.db` are retained. Announcement scraping
 is replaced by market scanning; old announcement records are left intact.
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
 | `TG_BOT_TOKEN` | required | Telegram bot token |
+| `TG_ADMIN_IDS` | unset | Comma-separated Telegram user IDs allowed to change scanner settings |
 | `SCRAPE_INTERVAL` | `60` | Seconds between scans |
 | `MIN_GAIN_PERCENT` | `50` | Minimum rolling 24h percentage gain (1m approximation) |
 | `MIN_TURNOVER_USDT` | `1000000` | Minimum 24h turnover |
 | `MIN_OI_TURNOVER_RATIO` | `0.10` | Minimum OI/turnover ratio (10%) |
 | `MAX_OI_TURNOVER_RATIO` | unset | Optional upper ratio, e.g. `1.50` for 150% |
 | `DB_PATH` | `data/mexc_futures.db` in repo | SQLite database location |
+
+Telegram commands:
+
+| Command | Example | Effect |
+| --- | --- | --- |
+| `/settings` | `/settings` | Show current saved settings |
+| `/set_gain` | `/set_gain 50` | Minimum rolling 24h gain percent |
+| `/set_turnover` | `/set_turnover 1000000` | Minimum 24h turnover in USDT |
+| `/set_min_oi_ratio` | `/set_min_oi_ratio 0.10` | Minimum OI/turnover ratio |
+| `/set_max_oi_ratio` | `/set_max_oi_ratio off` | Optional maximum ratio; `off` disables it |
+| `/set_interval` | `/set_interval 60` | Scan interval in seconds (10–86400) |
+
+The five setting commands are available only to IDs in `TG_ADMIN_IDS`. Values are
+validated before they are saved; interval changes apply immediately.
 
 The first scan alerts on currently qualifying contracts unless already sent that UTC
 day. Each subscriber receives a ticker at most once per calendar day (00:00–24:00

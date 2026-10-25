@@ -2,9 +2,11 @@
 
 import asyncio
 from contextlib import closing
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from html import escape
+from functools import partial
 import logging
 import os
 from pathlib import Path
@@ -28,7 +30,25 @@ MIN_OI_TURNOVER_RATIO = Decimal(os.getenv("MIN_OI_TURNOVER_RATIO", "0.10"))
 MAX_OI_TURNOVER_RATIO = (
     Decimal(os.environ["MAX_OI_TURNOVER_RATIO"]) if os.getenv("MAX_OI_TURNOVER_RATIO") else None
 )
+ADMIN_IDS = frozenset(
+    value.strip() for value in os.getenv("TG_ADMIN_IDS", "").split(",") if value.strip()
+)
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ScannerConfig:
+    interval: int
+    min_gain_percent: Decimal
+    min_turnover_usdt: Decimal
+    min_oi_turnover_ratio: Decimal
+    max_oi_turnover_ratio: Decimal | None
+
+
+def default_config():
+    return ScannerConfig(SCRAPE_INTERVAL, MIN_GAIN_PERCENT, MIN_TURNOVER_USDT,
+                         MIN_OI_TURNOVER_RATIO, MAX_OI_TURNOVER_RATIO)
+
 
 # --- PROMETHEUS METRICS ---
 SCAN_DURATION = Histogram("mexc_scan_duration_seconds", "Duration of market scan cycle")
@@ -54,6 +74,64 @@ def init_db():
         conn.execute("""CREATE TABLE IF NOT EXISTS gainer_alerts (
             chat_id TEXT NOT NULL, symbol TEXT NOT NULL, sent_at TEXT NOT NULL,
             PRIMARY KEY (chat_id, symbol))""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS scanner_settings (
+            name TEXT PRIMARY KEY, value TEXT NOT NULL)""")
+        conn.executemany(
+            "INSERT OR IGNORE INTO scanner_settings (name, value) VALUES (?, ?)",
+            [(key, "off" if value is None else str(value))
+             for key, value in config_values(default_config()).items()],
+        )
+
+
+def config_values(config):
+    return {
+        "SCRAPE_INTERVAL": config.interval,
+        "MIN_GAIN_PERCENT": config.min_gain_percent,
+        "MIN_TURNOVER_USDT": config.min_turnover_usdt,
+        "MIN_OI_TURNOVER_RATIO": config.min_oi_turnover_ratio,
+        "MAX_OI_TURNOVER_RATIO": config.max_oi_turnover_ratio,
+    }
+
+
+def load_config():
+    values = config_values(default_config())
+    with closing(get_db()) as conn:
+        values.update(dict(conn.execute("SELECT name, value FROM scanner_settings")))
+    return ScannerConfig(
+        interval=int(values["SCRAPE_INTERVAL"]),
+        min_gain_percent=Decimal(values["MIN_GAIN_PERCENT"]),
+        min_turnover_usdt=Decimal(values["MIN_TURNOVER_USDT"]),
+        min_oi_turnover_ratio=Decimal(values["MIN_OI_TURNOVER_RATIO"]),
+        max_oi_turnover_ratio=(None if values["MAX_OI_TURNOVER_RATIO"] == "off"
+                                else Decimal(values["MAX_OI_TURNOVER_RATIO"])),
+    )
+
+
+def validate_config(config):
+    decimal_values = (config.min_gain_percent, config.min_turnover_usdt,
+                      config.min_oi_turnover_ratio)
+    if (config.interval < 10 or config.interval > 86_400
+            or any(not value.is_finite() or value < 0 for value in decimal_values)
+            or config.min_gain_percent > 10_000
+            or config.min_turnover_usdt <= 0
+            or config.min_turnover_usdt > Decimal("1e15")
+            or config.min_oi_turnover_ratio > 1_000
+            or (config.max_oi_turnover_ratio is not None and
+                (not config.max_oi_turnover_ratio.is_finite()
+                 or config.max_oi_turnover_ratio > 1_000
+                 or config.max_oi_turnover_ratio < config.min_oi_turnover_ratio))):
+        raise ValueError("Settings are outside valid ranges")
+
+
+def save_config(config):
+    validate_config(config)
+    with closing(get_db()) as conn, conn:
+        conn.executemany(
+            "INSERT INTO scanner_settings (name, value) VALUES (?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+            [(key, "off" if value is None else str(value))
+             for key, value in config_values(config).items()],
+        )
 
 
 def now():
@@ -70,12 +148,87 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "INSERT OR IGNORE INTO telegram_users (chat_id, username, first_seen) VALUES (?, ?, ?)",
             (str(update.effective_chat.id), update.effective_user.username, now()),
         )
+    config = load_config()
     await update.effective_message.reply_text(
         "✅ You are subscribed to MEXC USDT perpetual futures gainer alerts!\n"
-        f"Rolling 24h gain (1-minute candles) ≥ {MIN_GAIN_PERCENT}%, turnover ≥ ${MIN_TURNOVER_USDT:,.0f}, "
-        f"OI/turnover ≥ {MIN_OI_TURNOVER_RATIO:.0%}."
-        + (f" Maximum OI/turnover: {MAX_OI_TURNOVER_RATIO:.0%}." if MAX_OI_TURNOVER_RATIO is not None else "")
-        + "\nEach ticker is sent at most once per UTC day."
+        f"Rolling 24h gain (1-minute candles) ≥ {config.min_gain_percent}%, "
+        f"turnover ≥ ${config.min_turnover_usdt:,.0f}, "
+        f"OI/turnover ≥ {config.min_oi_turnover_ratio:.0%}."
+        + (f" Maximum OI/turnover: {config.max_oi_turnover_ratio:.0%}."
+           if config.max_oi_turnover_ratio is not None else "")
+        + f"\nScans run every {config.interval} seconds."
+        + "\nEach ticker is sent at most once per UTC day. Use /settings and /help."
+    )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.effective_message.reply_text(
+        "Scanner commands:\n"
+        "/settings — show current scanner settings\n"
+        "/set_gain <percent> — minimum rolling 24h gain\n"
+        "/set_turnover <USDT> — minimum 24h turnover\n"
+        "/set_min_oi_ratio <ratio> — minimum OI/turnover (0.10 = 10%)\n"
+        "/set_max_oi_ratio <ratio|off> — maximum ratio or disable it\n"
+        "/set_interval <seconds> — scan interval (10–86400)\n"
+        "Changes are restricted to configured Telegram admins."
+    )
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.effective_message.reply_text(
+        "Current scanner settings:\n" + format_settings(load_config()))
+
+
+async def set_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, setting):
+    user_id = str(update.effective_user.id) if update.effective_user else ""
+    if user_id not in ADMIN_IDS:
+        await update.effective_message.reply_text(
+            "Only configured admins can change scanner settings. Set TG_ADMIN_IDS "
+            "to comma-separated Telegram user IDs and restart the bot."
+        )
+        return
+    if len(context.args) != 1:
+        await update.effective_message.reply_text("Provide exactly one value. See /help.")
+        return
+    try:
+        current = load_config()
+        value = context.args[0]
+        if setting == "set_gain":
+            updated = replace(current, min_gain_percent=Decimal(value))
+        elif setting == "set_turnover":
+            updated = replace(current, min_turnover_usdt=Decimal(value))
+        elif setting == "set_min_oi_ratio":
+            updated = replace(current, min_oi_turnover_ratio=Decimal(value))
+        elif setting == "set_max_oi_ratio":
+            updated = replace(current, max_oi_turnover_ratio=(
+                None if value.lower() == "off" else Decimal(value)))
+        elif setting == "set_interval":
+            updated = replace(current, interval=int(value))
+        else:
+            raise ValueError("Unknown setting")
+        validate_config(updated)
+        save_config(updated)
+    except (ValueError, InvalidOperation):
+        await update.effective_message.reply_text(
+            "Invalid value. Use nonnegative numbers, keep max OI/turnover ≥ min, "
+            "and set the interval from 10 to 86400 seconds."
+        )
+        return
+    if setting == "set_interval":
+        schedule_scraper(context.application, updated.interval)
+    await update.effective_message.reply_text(f"Saved.\n\n{format_settings(updated)}")
+
+
+def format_settings(config):
+    max_ratio = ("off" if config.max_oi_turnover_ratio is None
+                 else f"{config.max_oi_turnover_ratio} ({config.max_oi_turnover_ratio:.0%})")
+    return (
+        f"Minimum gain: {config.min_gain_percent}%\n"
+        f"Minimum turnover: {config.min_turnover_usdt} USDT\n"
+        f"Minimum OI/turnover: {config.min_oi_turnover_ratio} "
+        f"({config.min_oi_turnover_ratio:.0%})\n"
+        f"Maximum OI/turnover: {max_ratio}\n"
+        f"Scan interval: {config.interval} seconds"
     )
 
 
@@ -134,8 +287,9 @@ def fetch_reference_price(symbol, timestamp):
     return price
 
 
-def select_gainers(tickers, contracts):
+def select_gainers(tickers, contracts, config=None):
     """Return sorted gainers and successfully evaluated symbols for scan statistics."""
+    config = config or default_config()
     details = {row.get("symbol"): row for row in contracts}
     gainers, evaluated = [], set()
     for ticker in tickers:
@@ -157,8 +311,9 @@ def select_gainers(tickers, contracts):
                 raise ValueError("Invalid market values")
             oi = holdings * size * price
             ratio = oi / turnover if turnover else Decimal(0)
-            if (turnover < MIN_TURNOVER_USDT or ratio < MIN_OI_TURNOVER_RATIO
-                    or (MAX_OI_TURNOVER_RATIO is not None and ratio > MAX_OI_TURNOVER_RATIO)):
+            if (turnover < config.min_turnover_usdt or ratio < config.min_oi_turnover_ratio
+                    or (config.max_oi_turnover_ratio is not None
+                        and ratio > config.max_oi_turnover_ratio)):
                 evaluated.add(symbol)
                 continue
             reference = fetch_reference_price(symbol, ticker["timestamp"])
@@ -167,18 +322,20 @@ def select_gainers(tickers, contracts):
             logger.warning("Skipping invalid market data for %s", symbol)
             continue
         evaluated.add(symbol)
-        if (gain >= MIN_GAIN_PERCENT and turnover >= MIN_TURNOVER_USDT
-                and ratio >= MIN_OI_TURNOVER_RATIO
-                and (MAX_OI_TURNOVER_RATIO is None or ratio <= MAX_OI_TURNOVER_RATIO)):
+        if (gain >= config.min_gain_percent and turnover >= config.min_turnover_usdt
+                and ratio >= config.min_oi_turnover_ratio
+                and (config.max_oi_turnover_ratio is None
+                     or ratio <= config.max_oi_turnover_ratio)):
             gainers.append(dict(symbol=symbol, gain=gain, turnover=turnover, price=price,
                                 oi=oi, ratio=ratio, funding=funding))
     return sorted(gainers, key=lambda row: row["gain"], reverse=True), evaluated
 
 
 def scrape():
+    config = load_config()
     contracts = fetch_market_data("detail")
     tickers = fetch_market_data("ticker")
-    return select_gainers(tickers, contracts)
+    return select_gainers(tickers, contracts, config)
 
 
 def format_alert(coin):
@@ -244,18 +401,19 @@ async def scrape_loop(context: ContextTypes.DEFAULT_TYPE):
         SCAN_DURATION.observe(time.time() - start_time)
 
 
+def schedule_scraper(app, interval):
+    for job in app.job_queue.get_jobs_by_name("market_scan"):
+        job.schedule_removal()
+    return app.job_queue.run_repeating(
+        scrape_loop, interval=interval, first=5, name="market_scan",
+        job_kwargs={"max_instances": 1, "coalesce": True},
+    )
+
+
 def main():
     if not BOT_TOKEN:
         raise ValueError("TG_BOT_TOKEN must be set")
-    thresholds = [MIN_GAIN_PERCENT, MIN_TURNOVER_USDT, MIN_OI_TURNOVER_RATIO]
-    if MAX_OI_TURNOVER_RATIO is not None:
-        thresholds.append(MAX_OI_TURNOVER_RATIO)
-    if SCRAPE_INTERVAL <= 0 or any(not value.is_finite() or value < 0 for value in thresholds):
-        raise ValueError("Scanner interval must be positive and thresholds finite and nonnegative")
-    if MIN_TURNOVER_USDT <= 0 or (
-        MAX_OI_TURNOVER_RATIO is not None and MAX_OI_TURNOVER_RATIO < MIN_OI_TURNOVER_RATIO
-    ):
-        raise ValueError("Turnover must be positive and maximum ratio must be at least the minimum")
+    validate_config(default_config())
     
     logging.basicConfig(level=logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -268,8 +426,12 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("health", health))
-    app.job_queue.run_repeating(scrape_loop, interval=SCRAPE_INTERVAL, first=5,
-                                job_kwargs={"max_instances": 1, "coalesce": True})
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("settings", settings_command))
+    for command in ("set_gain", "set_turnover", "set_min_oi_ratio",
+                    "set_max_oi_ratio", "set_interval"):
+        app.add_handler(CommandHandler(command, partial(set_setting, setting=command)))
+    schedule_scraper(app, load_config().interval)
     logger.info("MEXC futures gainer bot started")
     app.run_polling()
 
