@@ -8,9 +8,10 @@ services:
     # Metrics port 8000 is accessible to Prometheus via the Compose network
     environment:
       - TG_BOT_TOKEN=${TG_BOT_TOKEN}
+      - TG_ADMIN_IDS=${TG_ADMIN_IDS:-}
       - DB_PATH=/app/data/mexc_futures.db
       - SCRAPE_INTERVAL=${SCRAPE_INTERVAL:-60}
-      - MIN_GAIN_PERCENT=${MIN_GAIN_PERCENT:-80}
+      - MIN_GAIN_PERCENT=${MIN_GAIN_PERCENT:-50}
       - MIN_TURNOVER_USDT=${MIN_TURNOVER_USDT:-1000000}
       - MIN_OI_TURNOVER_RATIO=${MIN_OI_TURNOVER_RATIO:-0.10}
       - MAX_OI_TURNOVER_RATIO=${MAX_OI_TURNOVER_RATIO:-}
