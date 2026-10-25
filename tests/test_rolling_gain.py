@@ -40,7 +40,7 @@ def test_rolling_gain_ignores_timezone_fields(candle_api, fields):
     coins, evaluated = scanner.select_gainers([TICKER | fields], [CONTRACT])
     assert coins[0]["gain"] == 80
     assert evaluated == {"ABC_USDT"}
-    assert scanner.select_gainers([TICKER | fields | {"lastPrice": "1.99"}], [CONTRACT]) == (
+    assert scanner.select_gainers([TICKER | fields | {"lastPrice": "1.874875"}], [CONTRACT]) == (
         [], {"ABC_USDT"})
 
 
