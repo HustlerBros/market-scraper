@@ -27,7 +27,7 @@ def test_thresholds_and_contract_units():
     assert coins[0]["funding"] == Decimal("0.01")
 
 
-@pytest.mark.parametrize("changes", [dict(lastPrice="2.249875", holdVol="600000"), dict(amount24="999999"),
+@pytest.mark.parametrize("changes", [dict(lastPrice="1.874875", holdVol="600000"), dict(amount24="999999"),
                                     dict(holdVol="499999"), dict(amount24="0")])
 def test_below_thresholds(changes):
     assert scanner.select_gainers([TICKER | changes], [CONTRACT]) == ([], {"ABC_USDT"})
